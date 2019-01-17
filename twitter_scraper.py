@@ -1,6 +1,7 @@
 import re
 from requests_html import HTMLSession, HTML
 from datetime import datetime
+import lxml
 
 session = HTMLSession()
 
@@ -27,25 +28,47 @@ def get_tweets(user, pages=25):
             except KeyError:
                 raise ValueError(
                     f'Oops! Either "{user}" does not exist or is private.')
+            except lxml.etree.ParserError:
+                break
 
-            comma = ","
-            dot = "."
             tweets = []
             for tweet in html.find('.stream-item'):
-                text = tweet.find('.tweet-text')[0].full_text
-                tweetId = tweet.find(
-                    '.js-permalink')[0].attrs['data-conversation-id']
-                time = datetime.fromtimestamp(
-                    int(tweet.find('._timestamp')[0].attrs['data-time-ms'])/1000.0)
+                try:
+                    text = tweet.find('.tweet-text')[0].full_text
+                except IndexError:
+                    text = ''
+                try:
+                    tweet_id = tweet.find(
+                        '.js-permalink')[0].attrs['data-conversation-id']
+                except IndexError:
+                    tweet_id = None
+                try:
+                    time = datetime.fromtimestamp(
+                        int(tweet.find('._timestamp')[0].attrs['data-time-ms'])/1000.0)
+                except IndexError:
+                    time = None
                 interactions = [x.text for x in tweet.find(
                     '.ProfileTweet-actionCount')]
-                replies = int(re.sub('\D', '', interactions[0].split(" ")[0]))
-                retweets = int(re.sub('\D', '', interactions[1].split(" ")[0]))
-                likes = int(re.sub('\D', '', interactions[2].split(" ")[0]))
-                hashtags = [hashtag_node.full_text for hashtag_node in tweet.find('.twitter-hashtag')]
-                urls = [url_node.attrs['data-expanded-url'] for url_node in tweet.find('a.twitter-timeline-link:not(.u-hidden)')]
-                photos = [photo_node.attrs['data-image-url'] for photo_node in tweet.find('.AdaptiveMedia-photoContainer')]
-                
+                try:
+                    replies = int(re.sub(r''
+                                         r'\D', '', interactions[0].split(" ")[0]))
+                except IndexError:
+                    replies = None
+                try:
+                    retweets = int(re.sub(r'\D', '', interactions[1].split(" ")[0]))
+                except IndexError:
+                    retweets = None
+                try:
+                    likes = int(re.sub(r'\D', '', interactions[2].split(" ")[0]))
+                except IndexError:
+                    likes = None
+                hashtags = [hashtag_node.full_text
+                            for hashtag_node in tweet.find('.twitter-hashtag')]
+                urls = [url_node.attrs['data-expanded-url']
+                        for url_node in tweet.find('a.twitter-timeline-link:not(.u-hidden)')]
+                photos = [photo_node.attrs['data-image-url']
+                          for photo_node in tweet.find('.AdaptiveMedia-photoContainer')]
+
                 videos = []
                 video_nodes = tweet.find(".PlayableMedia-player")
                 for node in video_nodes:
@@ -55,8 +78,8 @@ def get_tweets(user, pages=25):
                             tmp = style.split('/')[-1]
                             video_id = tmp[:tmp.index('.jpg')]
                             videos.append({'id': video_id})
-                tweets.append({'tweetId': tweetId, 'time': time, 'text': text,
-                               'replies': replies, 'retweets': retweets, 'likes': likes, 
+                tweets.append({'tweetId': tweet_id, 'time': time, 'text': text,
+                               'replies': replies, 'retweets': retweets, 'likes': likes,
                                'entries': {
                                     'hashtags': hashtags, 'urls': urls,
                                     'photos': photos, 'videos': videos
@@ -70,8 +93,7 @@ def get_tweets(user, pages=25):
                     tweet['text'] = re.sub('http', ' http', tweet['text'], 1)
                     yield tweet
 
-            r = session.get(
-                url, params = {'max_position': last_tweet}, headers = headers)
+            r = session.get(url, params={'max_position': last_tweet}, headers=headers)
             pages += -1
 
     yield from gen_tweets(pages)
